@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <style>
+        body { margin: 0; background: #000; overflow: hidden; }
+        #gameCanvas { display: block; background: #2d5a27; width: 100vw; height: 100vh; }
+        #pantallaNombre { 
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%; 
+            background: #2d5a27; display: flex; flex-direction: column; 
+            justify-content: center; align-items: center; z-index: 20; 
+        }
+        #btnContinuar {
+            padding: 15px 30px; font-size: 20px; cursor: pointer; 
+            border-radius: 10px; border: none; background-color: #ffc107; 
+            color: #0a4c26; font-weight: bold;
+        }
+        /* Estilo para mostrar el Highscore y el nombre en pantalla */
+        #highscoreDisplay {
+            position: absolute; top: 10px; right: 20px; color: #ffc107;
+            font-size: 20px; font-family: monospace; z-index: 10; font-weight: bold;
+            text-align: right;
+        }
+    </style>
+
+    <!-- Firebase SDK Setup -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+        import { getAnalytics } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-analytics.js";
+        import { getFirestore, collection, addDoc, query, orderBy, limit, getDocs } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyCNlsof-NSPFVHWtUnar_94yJNqLPWIf1s",
+            authDomain: "ch-run-6e474.firebaseapp.com",
+            projectId: "ch-run-6e474",
+            storageBucket: "ch-run-6e474.firebasestorage.app",
+            messagingSenderId: "331314061307",
+            appId: "1:331314061307:web:a24aa05ed7b76ed717355e",
+            measurementId: "G-P3D17WSW78"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const analytics = getAnalytics(app);
+        const db = getFirestore(app);
+
+        window.db = db;
+        window.collection = collection;
+        window.addDoc = addDoc;
+        window.query = query;
+        window.orderBy = orderBy;
+        window.limit = limit;
+        window.getDocs = getDocs;
+
+        window.cargarHighscoreGeneral();
+    </script>
+</head>
+<body>
+
+    <div id="highscoreDisplay">
+        Récord: <span id="valorHighscore">0</span> pts<br>
+        <span id="nombreHighscore" style="font-size: 16px; color: #fff;">Nadie</span>
+    </div>
+
+    <div id="pantallaNombre">
+        <img src="PANTALLA INCIO.png" alt="CHALETEO Run" style="max-width: 80%; margin-bottom: 30px;">
+        <input type="text" id="nombreJugador" placeholder="Escribe tu nombre" style="padding: 15px; font-size: 20px; text-align: center; border-radius: 10px; border: none; margin-bottom: 20px;">
+        <button id="btnContinuar" onclick="guardarNombre()">CONTINUAR</button>
+    </div>
+
+    <canvas id="gameCanvas"></canvas>
+    <audio id="musica" loop><source src="intro.mp3" type="audio/mpeg"></audio>
+    <audio id="sonidoSalto"><source src="SALTO.mp3" type="audio/mpeg"></audio>
+    <audio id="sonidoPunto"><source src="SONIDO PUNTO.mp3" type="audio/mpeg"></audio>
+    <audio id="sonidoDiez"><source src="SONIDO PUNTO CADA 10.mp3" type="audio/mpeg"></audio>
+    <audio id="sonidoMuerte"><source src="muerte.mp3" type="audio/mpeg"></audio>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+
+        let nombreUsuario = "";
+        let estadoJuego = 'esperandoNombre';
+        let highscoreGeneral = 0;
+
+        // Función para consultar la mayor puntuación y el nombre del jugador en Firestore
+        window.cargarHighscoreGeneral = async function() {
+            try {
+                const q = window.query(window.collection(window.db, "puntuaciones"), window.orderBy("puntos", "desc"), window.limit(1));
+                const querySnapshot = await window.getDocs(q);
+                querySnapshot.forEach((doc) => {
+                    const data = doc.data();
+                    highscoreGeneral = data.puntos;
+                    document.getElementById('valorHighscore').innerText = highscoreGeneral;
+                    document.getElementById('nombreHighscore').innerText = data.nombre || "Anónimo";
+                });
+            } catch (e) {
+                console.error("Error al cargar el highscore: ", e);
+            }
+        }
+
+        // Función para guardar la puntuación y actualizar la pantalla si se rompe el récord
+        async function guardarPuntuacionFirebase(nombre, puntosFinales) {
+            try {
+                await window.addDoc(window.collection(window.db, "puntuaciones"), {
+                    nombre: nombre,
+                    puntos: puntosFinales,
+                    fecha: new Date()
+                });
+                
+                if (puntosFinales > highscoreGeneral) {
+                    highscoreGeneral = puntosFinales;
+                    document.getElementById('valorHighscore').innerText = highscoreGeneral;
+                    document.getElementById('nombreHighscore').innerText = nombre;
+                }
+            } catch (e) {
+                console.error("Error al guardar puntuación: ", e);
+            }
+        }
+
+        function guardarNombre() {
+            const input = document.getElementById('nombreJugador');
+            if (input.value.trim() !== "") {
+                nombreUsuario = input.value;
+                document.getElementById('pantallaNombre').style.display = 'none';
+                estadoJuego = 'menu';
+            } else {
+                alert("Por favor, escribe tu nombre.");
+            }
+        }
+
+        let fuenteLista = false;
+        const font = new FontFace('Calculator', 'url(Calculator.ttf)');
+        font.load().then(function(loadedFont) {
+            document.fonts.add(loadedFont);
+            fuenteLista = true;
+        }).catch(() => console.log("Fuente local no cargada"));
+
+        const musica = document.getElementById('musica');
+        const sonidoSalto = document.getElementById('sonidoSalto');
+        const sonidoPunto = document.getElementById('sonidoPunto');
+        const sonidoDiez = document.getElementById('sonidoDiez');
+        const sonidoMuerte = document.getElementById('sonidoMuerte');
+        
+        const imgCorriendo = new Image(); imgCorriendo.src = 'SRPITESHEET CORRIENDO.png';
+        const imgSalto = new Image(); imgSalto.src = 'SPRITESHEET SALTO.png';
+        const imgMuerte = new Image(); imgMuerte.src = 'SPRITESHEET MUERTE.png';
+        const imgVaso = new Image(); imgVaso.src = 'VASO ROJO.png';
+        const imgTitulo = new Image(); imgTitulo.src = 'TITULO.png';
+        const imgMarcador = new Image(); imgMarcador.src = 'MARCADOR.png';
+        const imgBoton = new Image(); imgBoton.src = 'BOTON PLAY.png';
+        const imgGameOver = new Image(); imgGameOver.src = 'GAME OVER.png';
+
+        let posXPersonaje = -100, y = canvas.height - 150, velY = 0, saltando = false, puntos = 0, startTime = 0, segundosFinales = 0, puntosFinales = 0;
+        let timeMuerteInicio = 0, vasos = [{x: canvas.width}], obsVel = 7;
+        const marcadorW = 300, marcadorH = 250, baseBotonW = 200, baseBotonH = 180;
+
+        function bajarVolumenMuerte() {
+            let fade = setInterval(() => {
+                if (sonidoMuerte.volume > 0.1) sonidoMuerte.volume -= 0.1;
+                else { sonidoMuerte.pause(); sonidoMuerte.volume = 1; clearInterval(fade); }
+            }, 30);
+        }
+
+        function iniciarSecuenciaEntrada() {
+            estadoJuego = 'entrando';
+            posXPersonaje = -100;
+            startTime = Date.now();
+            musica.playbackRate = 1.0;
+            musica.currentTime = 0;
+            musica.play();
+        }
+
+        function reiniciarJuego() {
+            bajarVolumenMuerte();
+            iniciarSecuenciaEntrada();
+            y = canvas.height - 150; velY = 0; saltando = false; puntos = 0;
+            vasos = [{x: canvas.width}]; obsVel = 7;
+        }
+
+        function manejarClick(e) {
+            if (estadoJuego === 'esperandoNombre') return;
+            
+            let rect = canvas.getBoundingClientRect();
+            let x = (e.clientX || e.touches[0].clientX) - rect.left;
+            let y_click = (e.clientY || e.touches[0].clientY) - rect.top;
+
+            let btnY = (estadoJuego === 'menu') ? 450 : 750;
+            if (estadoJuego === 'muerto' && Date.now() - timeMuerteInicio < 2000) return;
+
+            if ((estadoJuego === 'menu' || estadoJuego === 'muerto') && x > (canvas.width/2 - baseBotonW/2) && x < (canvas.width/2 + baseBotonW/2) && y_click > btnY && y_click < btnY + baseBotonH) {
+                if(estadoJuego === 'menu') iniciarSecuenciaEntrada();
+                else reiniciarJuego();
+            } else if (estadoJuego === 'jugando' && y_click > 0) {
+                if (!saltando) { velY = -25; saltando = true; sonidoSalto.currentTime = 0; sonidoSalto.play(); }
+            }
+        }
+
+        window.addEventListener('mousedown', manejarClick);
+        window.addEventListener('touchstart', manejarClick, {passive: false});
+
+        function loop() {
+            ctx.fillStyle = "#2d5a27"; ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            if (estadoJuego !== 'esperandoNombre') {
+                if (imgTitulo.complete) ctx.drawImage(imgTitulo, (canvas.width / 2) - 200, 20, 400, 150);
+                if (imgMarcador.complete) ctx.drawImage(imgMarcador, (canvas.width / 2) - 150, 180, marcadorW, marcadorH);
+                
+                ctx.fillStyle = "red"; 
+                ctx.font = fuenteLista ? "40px 'Calculator', monospace" : "40px monospace";
+                ctx.textAlign = "center"; ctx.textBaseline = "middle";
+
+                if (estadoJuego === 'entrando' || estadoJuego === 'jugando') segundosFinales = Math.floor((Date.now() - startTime) / 1000);
+
+                if (estadoJuego === 'menu') {
+                    ctx.fillText("0", (canvas.width / 2) - 75, 305); ctx.fillText("0", (canvas.width / 2) + 75, 305);
+                    let escala = 1 + Math.sin(Date.now() / 300) * 0.05;
+                    if (imgBoton.complete) ctx.drawImage(imgBoton, (canvas.width / 2) - (baseBotonW * escala)/2, 450, baseBotonW * escala, baseBotonH * escala);
+                } else if (estadoJuego === 'muerto') {
+                    let tiempoDesdeMuerte = Date.now() - timeMuerteInicio;
+                    let escalaGO = Math.min(tiempoDesdeMuerte / 500, 1);
+                    let wGO = 400 * escalaGO, hGO = 400 * escalaGO;
+                    if (imgGameOver.complete) ctx.drawImage(imgGameOver, (canvas.width / 2) - wGO/2, 350 + (400-hGO)/2, wGO, hGO);
+                    if (tiempoDesdeMuerte > 1000 && imgMuerte.complete) ctx.drawImage(imgMuerte, (Math.floor(Date.now() / 300) % 2) * 128, 0, 128, 128, (canvas.width / 2) - 100, 450, 200, 200);
+                    ctx.fillText(segundosFinales, (canvas.width / 2) - 75, 305); ctx.fillText(puntosFinales, (canvas.width / 2) + 75, 305);
+                    if (tiempoDesdeMuerte > 2000) {
+                        let escala = 1 + Math.sin(Date.now() / 300) * 0.05;
+                        if (imgBoton.complete) ctx.drawImage(imgBoton, (canvas.width / 2) - (baseBotonW * escala)/2, 750, baseBotonW * escala, baseBotonH * escala);
+                    }
+                } else if (estadoJuego === 'entrando') {
+                    posXPersonaje += 15;
+                    if (imgCorriendo.complete) ctx.drawImage(imgCorriendo, (Math.floor(Date.now() / 150) % 3) * 128, 0, 128, 128, posXPersonaje, y, 100, 100);
+                    ctx.fillText(segundosFinales, (canvas.width / 2) - 75, 305); ctx.fillText(puntos, (canvas.width / 2) + 75, 305);
+                    if (posXPersonaje >= (canvas.width / 2) - 50) estadoJuego = 'jugando';
+                } else if (estadoJuego === 'jugando') {
+                    if (saltando) { velY += 1.5; y += velY; if (y >= canvas.height - 150) { y = canvas.height - 150; saltando = false; } }
+                    obsVel += 0.002; 
+                    musica.playbackRate = 1 + (obsVel - 7) * 0.05; 
+                    for (let i = 0; i < vasos.length; i++) {
+                        vasos[i].x -= obsVel;
+                        if (imgVaso.complete) ctx.drawImage(imgVaso, vasos[i].x, canvas.height - 130, 60, 80);
+                        if (vasos[i].x < (canvas.width / 2) - 50 + 80 && vasos[i].x > (canvas.width / 2) - 50 - 40 && y > canvas.height - 200) {
+                            estadoJuego = 'muerto'; 
+                            puntosFinales = puntos; 
+                            timeMuerteInicio = Date.now();
+                            musica.pause(); 
+                            sonidoMuerte.currentTime = 0; 
+                            sonidoMuerte.play();
+                            
+                            guardarPuntuacionFirebase(nombreUsuario, puntosFinales);
+                        }
+                        if (!vasos[i].pasado && vasos[i].x < (canvas.width / 2) - 50) {
+                            puntos++; vasos[i].pasado = true;
+                            if (puntos % 10 === 0) { sonidoDiez.currentTime = 0; sonidoDiez.play(); } 
+                            else { sonidoPunto.currentTime = 0; sonidoPunto.play(); }
+                        }
+                    }
+                    let distanciaAleatoria = 400 + Math.random() * 300;
+                    if (vasos.length > 0 && vasos[vasos.length - 1].x < canvas.width - distanciaAleatoria) vasos.push({x: canvas.width, pasado: false});
+                    vasos = vasos.filter(v => v.x > -100);
+                    if (imgCorriendo.complete) ctx.drawImage(saltando ? imgSalto : imgCorriendo, saltando ? 0 : (Math.floor(Date.now() / 150) % 3) * 128, 0, 128, 128, (canvas.width / 2) - 50, y, 100, 100);
+                    ctx.fillText(segundosFinales, (canvas.width / 2) - 75, 305); ctx.fillText(puntos, (canvas.width / 2) + 75, 305);
+                }
+            }
+            requestAnimationFrame(loop);
+        }
+        loop();
+    </script>
+</body>
+</html>
